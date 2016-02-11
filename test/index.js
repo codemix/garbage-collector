@@ -4,14 +4,14 @@ import randomNumbers from "./random.json";
 
 const benchmark = createBenchmark();
 
-ensureDeterministicRandom();
+// ensureDeterministicRandom();
 
 
 describe('GarbageCollector', function () {
-  const reclaimers = Object.create(null);
-  let reclaimerInvoked = false;
-  reclaimers[3] = (offset) => {
-    reclaimerInvoked = true;
+  const callbacks = Object.create(null);
+  let callbackInvoked = false;
+  callbacks[3] = (offset) => {
+    callbackInvoked = true;
   };
   let buffer = new Buffer(1024 * 1024 * 20);
   let allocator;
@@ -19,7 +19,7 @@ describe('GarbageCollector', function () {
   before(() => {
     buffer.fill(123);
     allocator = new Allocator(buffer);
-    instance = new GarbageCollector(allocator, {reclaimers, lifetime: 2});
+    instance = new GarbageCollector(allocator, {callbacks, lifetime: 2});
   });
 
   describe('.constructor()', function () {
@@ -30,7 +30,43 @@ describe('GarbageCollector', function () {
     it('should create another instance with default options', function () {
       const collector = new GarbageCollector(allocator);
       collector.lifetime.should.equal(0);
-      (collector.reclaimers && typeof collector.reclaimers === 'object').should.equal(true);
+      (collector.callbacks && typeof collector.callbacks === 'object').should.equal(true);
+    });
+  });
+
+  describe('.calloc()', function () {
+    let allocator = new Allocator(new Buffer(4096).fill(127));
+    let instance = new GarbageCollector(allocator);
+    it('should allocate some bytes and clear them', function () {
+      const address = instance.calloc(128);
+      const uint8Array = new Uint8Array(allocator.buffer);
+      for (let i = 0; i < 128; i++) {
+        uint8Array[address + i].should.equal(0);
+      }
+    });
+
+    it('should allocate and clear less than the minimum allocation size', function () {
+      const address = instance.calloc(8);
+      const uint8Array = new Uint8Array(allocator.buffer);
+      for (let i = 0; i < 16; i++) {
+        uint8Array[address + i].should.equal(0);
+      }
+    });
+
+    it('should fail to allocate too many bytes', function () {
+      console.log(allocator);
+      instance.calloc(3820).should.equal(0);
+      console.log(allocator);
+    });
+
+    it('should allocate and clear less than the minimum allocation size, with a type tag', function () {
+      const address = instance.calloc(8, 123);
+      address.should.be.above(0);
+      const uint8Array = new Uint8Array(allocator.buffer);
+      for (let i = 0; i < 16; i++) {
+        uint8Array[address + i].should.equal(0);
+      }
+      instance.typeOf(address).should.equal(123);
     });
   });
 
@@ -91,20 +127,20 @@ describe('GarbageCollector', function () {
     });
 
 
-    it('should invoke the appropriate reclaimer method when freeing a tagged block', function () {
-      reclaimerInvoked.should.equal(false);
+    it('should invoke the appropriate callback method when freeing a tagged block', function () {
+      callbackInvoked.should.equal(false);
       instance.cycle().should.equal(128 + 16);
-      reclaimerInvoked.should.equal(true);
+      callbackInvoked.should.equal(true);
       instance.inspect().items.length.should.equal(0);
 
-      reclaimerInvoked = false; // reset
+      callbackInvoked = false; // reset
     });
   });
 
   describe('.free()', function () {
     let address1, address2, address3;
-    let reclaimerInvoked = false;
-    reclaimers[4] = () => reclaimerInvoked = true;
+    let callbackInvoked = false;
+    callbacks[4] = () => callbackInvoked = true;
 
     it('should allocate some bytes', function () {
       address1 = instance.alloc(64);
@@ -159,13 +195,13 @@ describe('GarbageCollector', function () {
     });
 
     it('should free the second address', function () {
-      reclaimerInvoked.should.equal(false);
+      callbackInvoked.should.equal(false);
       instance.free(address2).should.equal(128 + 16);
     });
 
-    it('should have invoked the reclaimer', function () {
-      reclaimerInvoked.should.equal(true);
-      reclaimerInvoked = false; // reset.
+    it('should have invoked the callback', function () {
+      callbackInvoked.should.equal(true);
+      callbackInvoked = false; // reset.
     });
 
     it('should remove a reference from the third address', function () {
@@ -181,6 +217,65 @@ describe('GarbageCollector', function () {
     });
   });
 
+  describe('alloc() exhaustively', function () {
+    let allocator = new Allocator(new Buffer(4096).fill(127));
+    let instance = new GarbageCollector(allocator);
+    const addresses = [];
+    it('should repeatedly allocate 16 byte chunks until it exhausts the available space', function () {
+      let prev = 0;
+      let next = 0;
+      let counter = 0;
+      while ((next = instance.alloc(16)) !== 0) {
+        prev = next;
+        addresses.push(next);
+        counter++;
+      }
+    });
+
+    it('should check the size of all the addresses', function () {
+      addresses.forEach(address => {
+        instance.sizeOf(address).should.be.within(16, 32);
+      });
+    });
+
+    it('should free all the available addresses in order', function () {
+      addresses.forEach(address => {
+        instance.free(address).should.be.within(32, 48);
+      });
+    });
+
+    it('should perform some garbage collection cycles', function () {
+      instance.cycle();
+      instance.cycle();
+    });
+
+    it('should repeatedly allocate 16 byte chunks until it exhausts the available space again', function () {
+      let prev = 0;
+      let next = 0;
+      let counter = 0;
+      while ((next = instance.alloc(16)) !== 0) {
+        prev = next;
+        addresses.push(next);
+        counter++;
+      }
+    });
+
+    it('should check the size of all the addresses again', function () {
+      addresses.forEach(address => {
+        instance.sizeOf(address).should.be.within(16, 32);
+      });
+
+    });
+
+    it('should free all the available addresses in reverse order', function () {
+      addresses.reverse().forEach((address, index) => {
+        if (index === addresses.length - 1) {
+          instance.free(address).should.be.within(32, 48);
+        }
+      });
+    });
+  });
+
 
   if (!process.env.GC_FAST_TESTS) {
     // Warning: Increasing the number of mutations has an exponential effect on test time.
@@ -191,11 +286,11 @@ describe('GarbageCollector', function () {
       256,
       128,
       72,
-      256
+      252
     ]);
   }
 
-  (process.env.NODE_ENV === "coverage" ? describe.skip : describe)('Benchmarks', function () {
+  (process.env.NODE_ENV !== "production" ? describe.skip : describe)('Benchmarks', function () {
     let buffer = new Buffer(1024 * 1024 * 20);
     let allocator;
     let instance;
@@ -214,7 +309,7 @@ describe('GarbageCollector', function () {
       }
     });
 
-    benchmark('allocate', 1000000, {
+    benchmark('allocate', 10000, {
       alloc () {
         instance.alloc(20);
       }
@@ -261,7 +356,7 @@ function mutate (input: number[]) {
     describe(`Sizes: ${sizes.join(', ')}`, function () {
 
       describe('Sequential', function () {
-        const reclaimers = {};
+        const callbacks = {};
         const lifetime = 2;
         let allocator;
         let instance;
@@ -269,7 +364,7 @@ function mutate (input: number[]) {
 
         before(() => {
           allocator = new Allocator(new Buffer(16000).fill(123));
-          instance = new GarbageCollector(allocator, {reclaimers, lifetime})
+          instance = new GarbageCollector(allocator, {callbacks, lifetime})
         });
         after(() => {
           instance.allocator = null;
@@ -287,7 +382,7 @@ function mutate (input: number[]) {
           const {items} = instance.inspect();
           sizes.forEach((size, index) => {
             items[index].offset.should.equal(addresses[index] - 16);
-            items[index].size.should.equal(size);
+            items[index].size.should.be.within(size, size + 16);
           });
         });
 
@@ -434,7 +529,7 @@ function mutate (input: number[]) {
         it('should inspect the blocks', function () {
           const {items} = instance.inspect();
           items.forEach((block, index) => {
-            block.size.should.equal(sizes[index]);
+            block.size.should.be.within(sizes[index], sizes[index] + 16);
             freeable += block.size + 16;
           });
         });

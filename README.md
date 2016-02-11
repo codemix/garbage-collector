@@ -27,7 +27,7 @@ const gc = new GarbageCollector(allocator, {
   lifetime: 2,
   // The callbacks which will be invoked when a tagged block is freed.
   // Keys must be integers within uint32 range, greater than zero.
-  reclaimers: {
+  callbacks: {
     1: (offset) => {
       console.log('Freeing string at', offset);
     }
