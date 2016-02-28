@@ -89,12 +89,28 @@ describe('GarbageCollector', function () {
       instance.sizeOf(address2).should.equal(128);
     });
 
+    it('should report a reference count of 0 for the first address', function () {
+      instance.refCount(address1).should.equal(0);
+    });
+
+    it('should report a reference count of 0 for the second address', function () {
+      instance.refCount(address2).should.equal(0);
+    });
+
     it('should increase the reference count for the first address', function () {
       instance.ref(address1).should.equal(1);
     });
 
     it('should increase the reference count for the second address', function () {
-      instance.ref(address2);
+      instance.ref(address2).should.equal(1);
+    });
+
+    it('should report a reference count of 1 for the first address', function () {
+      instance.refCount(address1).should.equal(1);
+    });
+
+    it('should report a reference count of 1 for the second address', function () {
+      instance.refCount(address2).should.equal(1);
     });
 
     it('should cycle, without collecting anything', function () {
@@ -103,6 +119,14 @@ describe('GarbageCollector', function () {
 
     it('should decrease the reference count for the first address', function () {
       instance.unref(address1);
+    });
+
+    it('should report a reference count of 0 for the first address', function () {
+      instance.refCount(address1).should.equal(0);
+    });
+
+    it('should report a reference count of 1 for the second address', function () {
+      instance.refCount(address2).should.equal(1);
     });
 
     it('should cycle, without collecting anything', function () {
@@ -120,6 +144,10 @@ describe('GarbageCollector', function () {
 
     it('should decrease the reference count for the second address', function () {
       instance.unref(address2);
+    });
+
+    it('should report a reference count of 0 for the second address', function () {
+      instance.refCount(address2).should.equal(0);
     });
 
     it('should cycle, without collecting anything', function () {

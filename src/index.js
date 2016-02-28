@@ -255,6 +255,15 @@ export default class GarbageCollector {
   }
 
   /**
+   * Return the reference count of the block at the given address.
+   */
+  refCount (address: int32): uint32 {
+    const int32Array = this.allocator.int32Array;
+    const offset: int32 = bytesToQuads(address - ENTRY_OVERHEAD_IN_BYTES);
+    return int32Array[offset + REF_COUNT_OFFSET_IN_QUADS];
+  }
+
+  /**
    * Return the size of the block at the given address.
    */
   sizeOf (address: int32): uint32 {
