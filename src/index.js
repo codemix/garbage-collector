@@ -88,7 +88,7 @@ export default class GarbageCollector {
    * Allocate a given number of bytes and return the offset.
    * If allocation fails, returns 0.
    */
-  alloc (numberOfBytes: int32, type: uint32 = 0): int32 {
+  alloc (numberOfBytes: int32, type: uint32 = 0, refCount: uint32 = 0): int32 {
     trace: `Allocating ${numberOfBytes} bytes with type ${type}`;
     const allocator = this.allocator;
     const address: int32 = allocator.alloc(numberOfBytes + ENTRY_OVERHEAD_IN_BYTES);
@@ -99,20 +99,26 @@ export default class GarbageCollector {
     const offset: int32 = bytesToQuads(address);
     const int32Array = allocator.int32Array;
 
-    const tail = int32Array[TAIL_OFFSET_IN_QUADS];
-    if (tail === 0) {
-      int32Array[offset] = 0;
-      int32Array[HEAD_OFFSET_IN_QUADS] = offset;
-      int32Array[TAIL_OFFSET_IN_QUADS] = offset;
+    if (refCount > 0) {
+      int32Array[offset + REF_COUNT_OFFSET_IN_QUADS] = refCount;
+      int32Array[offset + TYPE_OFFSET_IN_QUADS] = type >> 0;
     }
     else {
-      int32Array[tail + NEXT_OFFSET_IN_QUADS] = offset;
-      int32Array[offset] = tail;
-      int32Array[TAIL_OFFSET_IN_QUADS] = offset;
+      const tail = int32Array[TAIL_OFFSET_IN_QUADS];
+      if (tail === 0) {
+        int32Array[offset] = 0;
+        int32Array[HEAD_OFFSET_IN_QUADS] = offset;
+        int32Array[TAIL_OFFSET_IN_QUADS] = offset;
+      }
+      else {
+        int32Array[tail + NEXT_OFFSET_IN_QUADS] = offset;
+        int32Array[offset] = tail;
+        int32Array[TAIL_OFFSET_IN_QUADS] = offset;
+      }
+      int32Array[offset + NEXT_OFFSET_IN_QUADS] = 0;
+      int32Array[offset + REF_COUNT_OFFSET_IN_QUADS] = 0;
+      int32Array[offset + TYPE_OFFSET_IN_QUADS] = type >> 0;
     }
-    int32Array[offset + NEXT_OFFSET_IN_QUADS] = 0;
-    int32Array[offset + REF_COUNT_OFFSET_IN_QUADS] = 0;
-    int32Array[offset + TYPE_OFFSET_IN_QUADS] = type >> 0;
 
     return address + ENTRY_OVERHEAD_IN_BYTES;
   }
@@ -121,9 +127,9 @@ export default class GarbageCollector {
    * Allocate and clear given number of bytes and return the offset.
    * If allocation fails, returns 0.
    */
-  calloc (numberOfBytes: int32, type: uint32 = 0): int32 {
+  calloc (numberOfBytes: int32, type: uint32 = 0, refCount: uint32 = 0): int32 {
     numberOfBytes = numberOfBytes < 16 ? 16 : align(numberOfBytes);
-    const address = this.alloc(numberOfBytes, type);
+    const address = this.alloc(numberOfBytes, type, refCount);
     if (address === 0) {
       // No space.
       return 0;

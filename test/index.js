@@ -68,6 +68,12 @@ describe('GarbageCollector', function () {
       }
       instance.typeOf(address).should.equal(123);
     });
+
+    it('should calloc() with an initial reference count', function () {
+      const address = instance.calloc(8, 0, 123);
+      address.should.be.above(0);
+      instance.refCount(address).should.equal(123);
+    });
   });
 
   describe('.alloc(), .ref(), .unref(), .cycle()', function () {
@@ -454,7 +460,6 @@ function mutate (input: number[]) {
 
       });
 
-
       describe('Alloc & Free', function () {
         let allocator, instance;
         let freeable = 0;
@@ -478,6 +483,71 @@ function mutate (input: number[]) {
             const size = sizes[(index + 1) % sizes.length];
             instance.free(address);
             return instance.alloc(size);
+          });
+        });
+
+        it('should inspect the blocks', function () {
+          const {items} = instance.inspect();
+        });
+
+        it('should unref the blocks', function () {
+          addresses.forEach(address => instance.unref(address));
+        });
+
+        it('should inspect the collectible blocks', function () {
+          const {items} = instance.inspect();
+          items.length.should.equal(addresses.length);
+          items.forEach(item => {
+            item.cycles.should.equal(0);
+          });
+        });
+
+        it('should perform a garbage collection cycle, but not collect anything', function () {
+          instance.cycle().should.equal(0);
+        });
+
+        it('should inspect the collectible blocks', function () {
+          const {items} = instance.inspect();
+          items.length.should.equal(addresses.length);
+          items.forEach(item => {
+            item.cycles.should.equal(1);
+            freeable += item.size + 16;
+          });
+        });
+
+        it('should perform a garbage collection cycle and collect all the freeable blocks', function () {
+          instance.cycle().should.equal(freeable);
+        });
+
+        it('should inspect the collectible blocks', function () {
+          const {items} = instance.inspect();
+          items.length.should.equal(0);
+        });
+      });
+
+      describe('Alloc & Free with an initial ref count', function () {
+        let allocator, instance;
+        let freeable = 0;
+        before(() => {
+          allocator = new Allocator(new Buffer(16000).fill(123));
+          instance = new GarbageCollector(allocator, {lifetime: 2});
+        });
+        after(() => {
+          instance.allocator = null;
+          instance = null;
+          allocator.buffer = null;
+          allocator = null;
+        });
+
+        let addresses;
+        it('should allocate', function () {
+          addresses = sizes.map(address => instance.alloc(address));
+        });
+        it('should free & alloc again', function () {
+          addresses = addresses.map((address, index) => {
+            const size = sizes[(index + 1) % sizes.length];
+            instance.free(address);
+            return instance.alloc(size, 0, 1);
           });
         });
 
